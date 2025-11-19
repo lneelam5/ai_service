@@ -7,3 +7,5 @@ uvicorn main:app --reload --port 8000
 Stop-Process -Name python -Force
 
 Get-Process python*
+
+Run uvicorn main:app --reload --port 8000 and hit GET /api/generate-hedge-factor-report to verify data and base64 payloads.
