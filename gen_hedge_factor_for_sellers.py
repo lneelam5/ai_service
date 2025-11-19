@@ -6,10 +6,11 @@ import os
 import re
 import sys
 from typing_extensions import TypedDict
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from dotenv import load_dotenv
 import matplotlib.pyplot as plt
 import numpy as np
+import base64
 
 load_dotenv(override=True)
 
@@ -144,7 +145,11 @@ Here is the input list:
 
     return {**state, "output": structured.get("output", [])}
 
-def generate_distribution_chart(output_data: List[Dict[str, float]], save_path: str = "rate_factor_distribution.png"):
+def generate_distribution_chart(
+    output_data: List[Dict[str, float]],
+    save_path: str = "rate_factor_distribution.png",
+    show_plot: bool = True,
+):
     """Generate a distribution chart showing rate vs factor relationship."""
     if not output_data:
         print("No data available for chart generation")
@@ -231,11 +236,18 @@ def generate_distribution_chart(output_data: List[Dict[str, float]], save_path: 
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"Chart saved as: {save_path}")
 
-    # Show the plot
-    plt.show()
+    # Show or close the plot depending on context
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
 
 
-def generate_standard_deviation_chart(output_data: List[Dict[str, float]], save_path: str = "standard_deviation_chart.png"):
+def generate_standard_deviation_chart(
+    output_data: List[Dict[str, float]],
+    save_path: str = "standard_deviation_chart.png",
+    show_plot: bool = True,
+):
     """Generate a standard deviation chart showing the distribution of factors with std dev bands."""
     if not output_data:
         print("No data available for standard deviation chart generation")
@@ -343,8 +355,58 @@ def generate_standard_deviation_chart(output_data: List[Dict[str, float]], save_
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"Standard deviation chart saved as: {save_path}")
 
-    # Show the plot
-    plt.show()
+    # Show or close the plot depending on context
+    if show_plot:
+        plt.show()
+    else:
+        plt.close()
+
+
+def _encode_image_base64(path: str) -> Optional[str]:
+    """Return base64 string for an image if available."""
+    if not os.path.exists(path):
+        return None
+
+    with open(path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
+
+
+def run_hedge_factor_analysis(
+    sellers: Optional[List[Dict[str, float]]] = None,
+    chart_dir: str = "charts",
+    include_base64: bool = False,
+    show_plots: bool = False,
+) -> Dict[str, Any]:
+    """
+    Run the hedge factor pipeline, generate charts, and return structured data.
+    """
+    sellers_input = sellers if sellers is not None else mocked_sellers
+
+    if agent is None:
+        raise RuntimeError("LangGraph agent is not initialized")
+
+    result = agent.invoke({"sellers": sellers_input})
+    output_data = result.get("output", [])
+
+    charts: Dict[str, Dict[str, Optional[str]]] = {}
+
+    if output_data:
+        os.makedirs(chart_dir, exist_ok=True)
+
+        distribution_path = os.path.join(chart_dir, "rate_factor_distribution.png")
+        standard_dev_path = os.path.join(chart_dir, "standard_deviation_chart.png")
+
+        generate_distribution_chart(output_data, save_path=distribution_path, show_plot=show_plots)
+        generate_standard_deviation_chart(output_data, save_path=standard_dev_path, show_plot=show_plots)
+
+        charts["distribution"] = {"path": distribution_path}
+        charts["standard_deviation"] = {"path": standard_dev_path}
+
+        if include_base64:
+            charts["distribution"]["image_base64"] = _encode_image_base64(distribution_path)
+            charts["standard_deviation"]["image_base64"] = _encode_image_base64(standard_dev_path)
+
+    return {"output": output_data, "charts": charts}
 
 
 # Step 5. Build graph
@@ -358,16 +420,13 @@ agent = graph.compile()
 
 # Step 7. Run example
 if __name__ == "__main__":
-    result = agent.invoke({"sellers": mocked_sellers})
+    analysis_result = run_hedge_factor_analysis(include_base64=False, show_plots=True)
     print("Final Output:")
-    print(json.dumps(result["output"], indent=2))
+    print(json.dumps(analysis_result["output"], indent=2))
 
-    # Generate and display distribution chart
-    if result.get("output"):
-        print("\nGenerating distribution chart...")
-        generate_distribution_chart(result["output"])
-        
-        print("\nGenerating standard deviation chart...")
-        generate_standard_deviation_chart(result["output"])
+    if analysis_result["charts"]:
+        print("\nCharts generated:")
+        for chart_name, chart_info in analysis_result["charts"].items():
+            print(f"- {chart_name}: {chart_info['path']}")
     else:
-        print("No output data available for chart generation")
+        print("No charts generated")
